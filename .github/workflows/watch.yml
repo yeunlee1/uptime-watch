@@ -1,0 +1,44 @@
+# 정해 둔 주소가 살아 있는지 5분마다 확인하고, 이상하면 실패로 끝내 메일이 가게 합니다.
+name: 주소 감시
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: uptime-watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: 확인
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 대상 점검
+        env:
+          WATCH_TARGETS: ${{ secrets.WATCH_TARGETS }}
+        run: node .github/scripts/check.mjs
+
+      # 공개 저장소라도 60일 동안 커밋이 없으면 깃허브가 예약 실행을 꺼 버립니다.
+      # 하루에 한 줄만 남겨 그것을 막습니다. 실패한 날에는 남기지 않습니다.
+      - name: 살아있음 표시
+        run: |
+          TODAY=$(TZ=Asia/Seoul date +%Y-%m-%d)
+          if grep -q "$TODAY" 상태.md 2>/dev/null; then
+            echo "오늘 기록이 이미 있습니다. 건너뜁니다."
+            exit 0
+          fi
+          printf '마지막 정상 확인 — %s (한국 시간)\n' "$TODAY" > 상태.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 상태.md
+          git commit -m "chore: $TODAY 감시 정상 기록"
+          git push
